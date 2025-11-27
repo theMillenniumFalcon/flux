@@ -6,7 +6,7 @@ import logging
 from api.config import get_settings
 from api.database import init_db, close_db
 from api.redis_client import close_redis
-from api.routes import health
+from api.routes import functions, executions, health
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +57,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
+app.include_router(functions.router, prefix="/api/v1/functions", tags=["Functions"])
+app.include_router(executions.router, prefix="/api/v1/executions", tags=["Executions"])
 
 
 @app.get("/")
