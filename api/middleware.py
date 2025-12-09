@@ -40,15 +40,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Middleware to apply rate limiting to specific endpoints.
-    Applied globally but checks are done per user/identifier.
+    Middleware to apply global rate limiting to execution endpoints.
+    Prevents system overload without user authentication.
     """
     
     def __init__(self, app: ASGIApp):
         super().__init__(app)
         self.rate_limited_paths = [
             "/api/v1/executions",
-            "/api/v1/functions"
         ]
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -61,19 +60,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             for limited_path in self.rate_limited_paths
         )
         
-        if should_limit and request.method in ["POST", "PUT"]:
-            # Extract identifier from headers or path
-            # In production, this would come from authentication
-            identifier = request.headers.get("X-User-ID", "anonymous")
-            tier = request.headers.get("X-User-Tier", "free")
-            
-            # Apply rate limit check
+        if should_limit and request.method == "POST":
+            # Apply global rate limit check
             from api.rate_limiter import get_rate_limiter
             rate_limiter = get_rate_limiter()
             
             try:
                 # Check rate limit
-                limit_info = await rate_limiter.check_rate_limit(identifier, tier)
+                limit_info = await rate_limiter.check_rate_limit("executions")
                 
                 # Add rate limit headers to response
                 response = await call_next(request)

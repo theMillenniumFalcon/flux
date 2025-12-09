@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
@@ -8,65 +8,49 @@ from api.rate_limiter import get_rate_limiter, RateLimiter
 router = APIRouter()
 
 
-@router.get("/quota/{user_id}")
-async def get_quota_usage(
-    user_id: str,
-    tier: str = Query("free", regex="^(free|pro|enterprise)$"),
+@router.get("/usage")
+async def get_system_usage(
     db: AsyncSession = Depends(get_db),
     quota_manager: QuotaManager = Depends(get_quota_manager)
 ):
     """
-    Get comprehensive quota usage for a user.
-    
-    Args:
-        user_id: User identifier
-        tier: User tier (free/pro/enterprise)
+    Get comprehensive system usage statistics.
     
     Returns:
-        Detailed quota usage statistics
+        System usage statistics including executions, resources, and functions
     """
-    usage_summary = await quota_manager.get_usage_summary(user_id, tier, db)
+    usage_summary = await quota_manager.get_usage_summary(db)
     return usage_summary
 
 
-@router.get("/rate-limit/{identifier}")
+@router.get("/rate-limit")
 async def get_rate_limit_status(
-    identifier: str,
-    tier: str = Query("free", regex="^(free|pro|enterprise)$"),
     rate_limiter: RateLimiter = Depends(get_rate_limiter)
 ):
     """
-    Get rate limit status for an identifier.
-    
-    Args:
-        identifier: User/function identifier
-        tier: Rate limit tier
+    Get current rate limit status.
     
     Returns:
         Rate limit status and statistics
     """
-    usage = await rate_limiter.get_usage_stats(identifier, tier)
+    usage = await rate_limiter.get_usage_stats()
     return usage
 
 
-@router.post("/rate-limit/{identifier}/reset")
+@router.post("/rate-limit/reset")
 async def reset_rate_limit(
-    identifier: str,
     rate_limiter: RateLimiter = Depends(get_rate_limiter)
 ):
     """
-    Reset rate limits for an identifier (admin function).
-    
-    Args:
-        identifier: User/function identifier
+    Reset rate limits (admin function).
     
     Returns:
         Success message
     """
-    await rate_limiter.reset_limits(identifier)
+    await rate_limiter.reset_limits()
     return {
         "status": "success",
-        "message": f"Rate limits reset for {identifier}"
+        "message": "Rate limits reset"
     }
 
 
@@ -146,61 +130,33 @@ async def cleanup_pool():
         }
 
 
-@router.get("/tiers")
-async def get_tier_information():
+@router.get("/limits")
+async def get_system_limits():
     """
-    Get information about available tiers and their limits.
+    Get information about system limits and configuration.
     
     Returns:
-        Tier information
+        System limits configuration
     """
-    from api.quota_manager import QuotaTier
-    from api.rate_limiter import RateLimitTier
+    from api.config import get_settings
+    from api.rate_limiter import get_rate_limiter
+    
+    settings = get_settings()
+    rate_limiter = get_rate_limiter()
     
     return {
-        "tiers": {
-            "free": {
-                "quota": {
-                    "daily_executions": QuotaTier.FREE.daily_executions,
-                    "monthly_executions": QuotaTier.FREE.monthly_executions,
-                    "max_execution_time": QuotaTier.FREE.max_execution_time,
-                    "max_memory": QuotaTier.FREE.max_memory,
-                    "max_functions": QuotaTier.FREE.max_functions,
-                    "max_storage_mb": QuotaTier.FREE.max_storage_mb
-                },
-                "rate_limit": {
-                    "max_requests_per_hour": RateLimitTier.FREE.max_requests,
-                    "max_concurrent": RateLimitTier.FREE.max_concurrent
-                }
-            },
-            "pro": {
-                "quota": {
-                    "daily_executions": QuotaTier.PRO.daily_executions,
-                    "monthly_executions": QuotaTier.PRO.monthly_executions,
-                    "max_execution_time": QuotaTier.PRO.max_execution_time,
-                    "max_memory": QuotaTier.PRO.max_memory,
-                    "max_functions": QuotaTier.PRO.max_functions,
-                    "max_storage_mb": QuotaTier.PRO.max_storage_mb
-                },
-                "rate_limit": {
-                    "max_requests_per_hour": RateLimitTier.PRO.max_requests,
-                    "max_concurrent": RateLimitTier.PRO.max_concurrent
-                }
-            },
-            "enterprise": {
-                "quota": {
-                    "daily_executions": QuotaTier.ENTERPRISE.daily_executions,
-                    "monthly_executions": QuotaTier.ENTERPRISE.monthly_executions,
-                    "max_execution_time": QuotaTier.ENTERPRISE.max_execution_time,
-                    "max_memory": QuotaTier.ENTERPRISE.max_memory,
-                    "max_functions": QuotaTier.ENTERPRISE.max_functions,
-                    "max_storage_mb": QuotaTier.ENTERPRISE.max_storage_mb
-                },
-                "rate_limit": {
-                    "max_requests_per_hour": RateLimitTier.ENTERPRISE.max_requests,
-                    "max_concurrent": RateLimitTier.ENTERPRISE.max_concurrent
-                }
-            }
+        "rate_limiting": {
+            "max_requests_per_hour": rate_limiter.max_requests_per_hour,
+            "max_concurrent_executions": rate_limiter.max_concurrent_executions
+        },
+        "execution_limits": {
+            "max_execution_time": settings.max_execution_time_pro,
+            "max_memory_limit": settings.max_memory_limit_pro,
+            "container_pool_size": settings.container_pool_size
+        },
+        "retention": {
+            "log_retention_days": settings.log_retention_days,
+            "result_cache_ttl_seconds": settings.result_cache_ttl
         }
     }
 
@@ -211,7 +167,7 @@ async def get_system_metrics():
     Get overall system metrics and health.
     
     Returns:
-        System metrics
+        System metrics including pool, Docker, and execution stats
     """
     from executor.container_pool import get_container_pool
     import docker

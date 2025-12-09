@@ -1,7 +1,6 @@
 import time
 import logging
 from typing import Optional, Dict
-from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 from api.redis_client import get_cache_manager, CacheManager
@@ -11,56 +10,25 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-@dataclass
-class RateLimitConfig:
-    """Rate limit configuration."""
-    max_requests: int
-    window_seconds: int
-    max_concurrent: int
-
-
-class RateLimitTier:
-    """Rate limit tiers."""
-    FREE = RateLimitConfig(
-        max_requests=100,  # 100 executions per hour
-        window_seconds=3600,
-        max_concurrent=2  # 2 concurrent executions
-    )
-    
-    PRO = RateLimitConfig(
-        max_requests=1000,  # 1000 executions per hour
-        window_seconds=3600,
-        max_concurrent=10  # 10 concurrent executions
-    )
-    
-    ENTERPRISE = RateLimitConfig(
-        max_requests=10000,  # 10k executions per hour
-        window_seconds=3600,
-        max_concurrent=50  # 50 concurrent executions
-    )
-
-
 class RateLimiter:
     """
-    Token bucket rate limiter with Redis backend.
-    Supports both request rate limiting and concurrent execution limiting.
+    Simple global rate limiter using token bucket algorithm.
+    Prevents system overload without user authentication.
     """
     
     def __init__(self, cache_manager: Optional[CacheManager] = None):
         """Initialize rate limiter."""
         self.cache = cache_manager or get_cache_manager()
+        # Global system limits
+        self.max_requests_per_hour = 1000
+        self.max_concurrent_executions = 20
     
-    async def check_rate_limit(
-        self,
-        identifier: str,
-        tier: str = "free"
-    ) -> Dict[str, any]:
+    async def check_rate_limit(self, endpoint: str = "global") -> Dict[str, any]:
         """
-        Check if request is within rate limit.
+        Check if request is within global rate limit.
         
         Args:
-            identifier: User/function identifier
-            tier: Rate limit tier (free/pro/enterprise)
+            endpoint: Endpoint identifier (for separate limits per endpoint)
         
         Returns:
             Dict with rate limit info
@@ -68,20 +36,19 @@ class RateLimiter:
         Raises:
             HTTPException: If rate limit exceeded
         """
-        config = self._get_tier_config(tier)
-        
         # Token bucket key
-        key = f"ratelimit:{identifier}"
+        key = f"ratelimit:{endpoint}"
         
         # Get current token count and last refill time
         current_tokens = await self.cache.get(f"{key}:tokens")
         last_refill = await self.cache.get(f"{key}:last_refill")
         
         now = time.time()
+        window_seconds = 3600  # 1 hour
         
         if current_tokens is None:
             # Initialize bucket
-            current_tokens = config.max_requests
+            current_tokens = self.max_requests_per_hour
             last_refill = now
         else:
             current_tokens = float(current_tokens)
@@ -89,23 +56,22 @@ class RateLimiter:
             
             # Refill tokens based on time passed
             time_passed = now - last_refill
-            tokens_to_add = (time_passed / config.window_seconds) * config.max_requests
-            current_tokens = min(config.max_requests, current_tokens + tokens_to_add)
+            tokens_to_add = (time_passed / window_seconds) * self.max_requests_per_hour
+            current_tokens = min(self.max_requests_per_hour, current_tokens + tokens_to_add)
             last_refill = now
         
         # Check if we have tokens
         if current_tokens < 1:
             # Rate limit exceeded
-            reset_time = last_refill + config.window_seconds
+            reset_time = last_refill + window_seconds
             retry_after = int(reset_time - now)
             
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
-                    "error": "Rate limit exceeded",
-                    "limit": config.max_requests,
-                    "window": config.window_seconds,
-                    "retry_after": retry_after
+                    "error": "System rate limit exceeded. Please try again later.",
+                    "limit": self.max_requests_per_hour,
+                    "retry_after_seconds": retry_after
                 }
             )
         
@@ -113,27 +79,19 @@ class RateLimiter:
         current_tokens -= 1
         
         # Update Redis
-        await self.cache.set(f"{key}:tokens", str(current_tokens), ttl=config.window_seconds)
-        await self.cache.set(f"{key}:last_refill", str(last_refill), ttl=config.window_seconds)
+        await self.cache.set(f"{key}:tokens", str(current_tokens), ttl=window_seconds)
+        await self.cache.set(f"{key}:last_refill", str(last_refill), ttl=window_seconds)
         
         return {
             "allowed": True,
             "remaining": int(current_tokens),
-            "limit": config.max_requests,
-            "reset": int(last_refill + config.window_seconds)
+            "limit": self.max_requests_per_hour,
+            "reset": int(last_refill + window_seconds)
         }
     
-    async def check_concurrent_limit(
-        self,
-        identifier: str,
-        tier: str = "free"
-    ) -> bool:
+    async def check_concurrent_limit(self) -> bool:
         """
         Check if concurrent execution limit is reached.
-        
-        Args:
-            identifier: User/function identifier
-            tier: Rate limit tier
         
         Returns:
             True if within limit
@@ -141,33 +99,31 @@ class RateLimiter:
         Raises:
             HTTPException: If concurrent limit exceeded
         """
-        config = self._get_tier_config(tier)
-        
-        key = f"concurrent:{identifier}"
+        key = "concurrent:executions"
         current = await self.cache.get(key)
         current_count = int(current) if current else 0
         
-        if current_count >= config.max_concurrent:
+        if current_count >= self.max_concurrent_executions:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
-                    "error": "Concurrent execution limit exceeded",
-                    "limit": config.max_concurrent,
+                    "error": "System concurrent execution limit reached. Please try again shortly.",
+                    "limit": self.max_concurrent_executions,
                     "current": current_count
                 }
             )
         
         return True
     
-    async def increment_concurrent(self, identifier: str, tier: str = "free"):
+    async def increment_concurrent(self):
         """Increment concurrent execution counter."""
-        key = f"concurrent:{identifier}"
+        key = "concurrent:executions"
         await self.cache.increment(key)
-        await self.cache.expire(key, 3600)  # Expire after 1 hour
+        await self.cache.expire(key, 3600)
     
-    async def decrement_concurrent(self, identifier: str):
+    async def decrement_concurrent(self):
         """Decrement concurrent execution counter."""
-        key = f"concurrent:{identifier}"
+        key = "concurrent:executions"
         current = await self.cache.get(key)
         
         if current and int(current) > 0:
@@ -177,54 +133,43 @@ class RateLimiter:
             else:
                 await self.cache.set(key, str(new_val), ttl=3600)
     
-    async def get_usage_stats(self, identifier: str, tier: str = "free") -> Dict:
+    async def get_usage_stats(self) -> Dict:
         """Get rate limit usage statistics."""
-        config = self._get_tier_config(tier)
-        
         # Rate limit stats
-        tokens_key = f"ratelimit:{identifier}:tokens"
+        tokens_key = "ratelimit:global:tokens"
         current_tokens = await self.cache.get(tokens_key)
-        current_tokens = float(current_tokens) if current_tokens else config.max_requests
+        current_tokens = float(current_tokens) if current_tokens else self.max_requests_per_hour
         
         # Concurrent stats
-        concurrent_key = f"concurrent:{identifier}"
+        concurrent_key = "concurrent:executions"
         concurrent_count = await self.cache.get(concurrent_key)
         concurrent_count = int(concurrent_count) if concurrent_count else 0
         
         return {
-            "tier": tier,
             "rate_limit": {
-                "limit": config.max_requests,
+                "limit_per_hour": self.max_requests_per_hour,
                 "remaining": int(current_tokens),
-                "window_seconds": config.window_seconds
+                "used": self.max_requests_per_hour - int(current_tokens)
             },
             "concurrent": {
-                "limit": config.max_concurrent,
-                "current": concurrent_count
+                "limit": self.max_concurrent_executions,
+                "current": concurrent_count,
+                "available": self.max_concurrent_executions - concurrent_count
             }
         }
     
-    def _get_tier_config(self, tier: str) -> RateLimitConfig:
-        """Get configuration for tier."""
-        tier_map = {
-            "free": RateLimitTier.FREE,
-            "pro": RateLimitTier.PRO,
-            "enterprise": RateLimitTier.ENTERPRISE
-        }
-        return tier_map.get(tier.lower(), RateLimitTier.FREE)
-    
-    async def reset_limits(self, identifier: str):
-        """Reset all limits for an identifier (admin function)."""
+    async def reset_limits(self):
+        """Reset all limits (admin function)."""
         keys_to_delete = [
-            f"ratelimit:{identifier}:tokens",
-            f"ratelimit:{identifier}:last_refill",
-            f"concurrent:{identifier}"
+            "ratelimit:global:tokens",
+            "ratelimit:global:last_refill",
+            "concurrent:executions"
         ]
         
         for key in keys_to_delete:
             await self.cache.delete(key)
         
-        logger.info(f"Reset rate limits for {identifier}")
+        logger.info("Reset all rate limits")
 
 
 # Singleton instance
