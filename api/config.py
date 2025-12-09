@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     celery_task_time_limit: int = 300
     celery_worker_prefetch_multiplier: int = 4
     celery_worker_max_tasks_per_child: int = 1000
+
+    # Execution Limits
+    container_pool_size: int = 5
+
+    # Storage
+    log_retention_days: int = 7
     
     class Config:
         env_file = ".env"
