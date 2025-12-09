@@ -32,8 +32,20 @@ celery_app.conf.beat_schedule = {
         "task": "workers.tasks.cleanup_containers",
         "schedule": 300.0,  # Every 5 minutes
     },
+    "cleanup-pool-containers": {
+        "task": "workers.tasks.cleanup_pool_containers",
+        "schedule": 600.0,  # Every 10 minutes
+    },
+    "warm-container-pool": {
+        "task": "workers.tasks.warm_container_pool",
+        "schedule": 180.0,  # Every 3 minutes
+    },
     "update-metrics": {
         "task": "workers.tasks.update_metrics",
         "schedule": 60.0,  # Every minute
+    },
+    "cleanup-old-logs": {
+        "task": "workers.tasks.cleanup_old_logs",
+        "schedule": 3600.0,  # Every hour
     },
 }

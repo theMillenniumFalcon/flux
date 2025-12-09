@@ -24,7 +24,8 @@ class RuntimeEngine:
         self,
         function: Function,
         execution: Execution,
-        input_data: Optional[Dict[str, Any]] = None
+        input_data: Optional[Dict[str, Any]] = None,
+        use_pool: bool = True
     ) -> Dict[str, Any]:
         """
         Execute a function in isolated container.
@@ -33,11 +34,12 @@ class RuntimeEngine:
             function: Function object
             execution: Execution object to track progress
             input_data: Input data to pass to function
+            use_pool: Whether to use container pool
         
         Returns:
             Execution result with output, logs, and metadata
         """
-        container = None
+        pooled_container = None
         execution_result = {
             "success": False,
             "output": None,
@@ -50,17 +52,34 @@ class RuntimeEngine:
         try:
             logger.info(f"Starting execution {execution.id} for function {function.id}")
             
-            # Create container
-            container = await self.docker_manager.create_container(
-                runtime=function.runtime,
-                memory_limit=function.memory_limit,
-                timeout=function.timeout,
-                environment_vars=function.environment_vars,
-                network_disabled=True
-            )
+            if use_pool:
+                # Try to get container from pool
+                from executor.container_pool import get_container_pool
+                pool = await get_container_pool()
+                
+                pooled_container = await pool.acquire_container(
+                    runtime=function.runtime,
+                    memory_limit=function.memory_limit,
+                    timeout=function.timeout
+                )
+                
+                if pooled_container:
+                    container = pooled_container.container
+                    logger.info(f"Using pooled container {container.id[:12]}")
+                else:
+                    logger.warning("Failed to acquire container from pool, creating new one")
+                    use_pool = False
             
-            # Start container
-            await self.docker_manager.start_container(container)
+            if not use_pool or not pooled_container:
+                # Create new container
+                container = await self.docker_manager.create_container(
+                    runtime=function.runtime,
+                    memory_limit=function.memory_limit,
+                    timeout=function.timeout,
+                    environment_vars=function.environment_vars,
+                    network_disabled=True
+                )
+                await self.docker_manager.start_container(container)
             
             # Execute code with timeout
             try:
@@ -98,8 +117,14 @@ class RuntimeEngine:
             execution_result["success"] = False
             
         finally:
-            # Cleanup container
-            if container:
+            # Return container to pool or cleanup
+            if pooled_container:
+                from executor.container_pool import get_container_pool
+                pool = await get_container_pool()
+                # Reuse container if execution was successful
+                reuse = execution_result["success"]
+                await pool.release_container(pooled_container, reuse=reuse)
+            elif container:
                 try:
                     await self.docker_manager.stop_container(container, timeout=5)
                     await self.docker_manager.remove_container(container)

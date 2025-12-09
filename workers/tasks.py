@@ -316,17 +316,47 @@ async def warm_container_pool() -> Dict[str, Any]:
         Pool status
     """
     try:
-        docker_manager = get_docker_manager()
+        from executor.container_pool import get_container_pool
+        pool = await get_container_pool()
         
-        # TODO: Implement container pool management
-        # For now, just log
-        logger.info("Container pool warming task executed")
+        # Maintain pool
+        await pool.maintain_pool()
+        
+        # Get stats
+        stats = await pool.get_pool_stats()
+        
+        logger.info(f"Container pool warmed: {stats['total_containers']} containers")
         
         return {
             "status": "success",
-            "pool_size": settings.container_pool_size
+            "stats": stats
         }
         
     except Exception as e:
         logger.error(f"Error warming container pool: {e}", exc_info=True)
         return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
+    name="workers.tasks.cleanup_pool_containers",
+    base=AsyncTask
+)
+async def cleanup_pool_containers() -> Dict[str, int]:
+    """
+    Periodic task to cleanup old containers in the pool.
+    
+    Returns:
+        Number of containers cleaned up
+    """
+    try:
+        from executor.container_pool import get_container_pool
+        pool = await get_container_pool()
+        
+        cleaned = await pool.cleanup_old_containers()
+        
+        logger.info(f"Pool cleanup completed: {cleaned} containers removed")
+        return {"cleaned": cleaned}
+        
+    except Exception as e:
+        logger.error(f"Error during pool cleanup: {e}", exc_info=True)
+        return {"cleaned": 0, "error": str(e)}
