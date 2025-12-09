@@ -6,7 +6,8 @@ import logging
 from api.config import get_settings
 from api.database import init_db, close_db
 from api.redis_client import close_redis
-from api.routes import functions, executions, health
+from api.routes import functions, executions, health, resources
+from api.middleware import RequestLoggingMiddleware, MetricsMiddleware, RateLimitMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -55,10 +56,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Custom middleware
+metrics_middleware = MetricsMiddleware(app)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
 # Include routers
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(functions.router, prefix="/api/v1/functions", tags=["Functions"])
 app.include_router(executions.router, prefix="/api/v1/executions", tags=["Executions"])
+app.include_router(resources.router, prefix="/api/v1/resources", tags=["Resources"])
 
 
 @app.get("/")
@@ -69,6 +76,18 @@ async def root():
         "version": settings.app_version,
         "status": "running",
         "docs": "/docs"
+    }
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Get application metrics."""
+    return {
+        "app": {
+            "name": settings.app_name,
+            "version": settings.app_version
+        },
+        "requests": metrics_middleware.get_metrics() if metrics_middleware else {}
     }
 
 
