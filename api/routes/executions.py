@@ -50,12 +50,27 @@ async def execute_function(
     await db.commit()
     await db.refresh(execution)
     
-    # TODO: Trigger Celery task for actual execution
-    # For now, return pending status
+    # Import Celery task
+    from workers.tasks import execute_function as execute_function_task
+    
+    # Trigger async execution via Celery
+    execute_function_task.delay(execution_id)
+    
     if execution_input.async_execution:
+        # Return immediately with pending status
         return execution
     else:
-        # For sync execution, we'll implement the actual execution in Phase 3
+        # Wait for execution to complete (with timeout)
+        import asyncio
+        max_wait = min(function.timeout + 5, 30)  # Max 30 seconds wait
+        
+        for _ in range(max_wait):
+            await asyncio.sleep(1)
+            await db.refresh(execution)
+            
+            if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                break
+        
         return execution
 
 

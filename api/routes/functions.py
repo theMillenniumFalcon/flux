@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import List, Dict, Any
 import uuid
 
 from api.database import get_db
@@ -222,3 +222,64 @@ async def get_function_stats(
         "failed_executions": failed_executions.scalar() or 0,
         "avg_execution_time": round(avg_execution_time.scalar() or 0, 3)
     }
+
+
+@router.post("/{function_id}/validate")
+async def validate_function(
+    function_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Validate function code for syntax errors.
+    """
+    result = await db.execute(
+        select(Function).where(Function.id == function_id)
+    )
+    function = result.scalar_one_or_none()
+    
+    if not function:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Function with id '{function_id}' not found"
+        )
+    
+    from executor.runtime import get_runtime_engine
+    runtime_engine = get_runtime_engine()
+    
+    validation_result = await runtime_engine.validate_function_code(
+        code=function.code,
+        runtime=function.runtime
+    )
+    
+    return validation_result
+
+
+@router.post("/{function_id}/test")
+async def test_function(
+    function_id: str,
+    test_input: Dict[str, Any] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Test a function with sample input without creating an execution record.
+    """
+    result = await db.execute(
+        select(Function).where(Function.id == function_id, Function.is_active == True)
+    )
+    function = result.scalar_one_or_none()
+    
+    if not function:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Function with id '{function_id}' not found or inactive"
+        )
+    
+    from executor.runtime import get_runtime_engine
+    runtime_engine = get_runtime_engine()
+    
+    test_result = await runtime_engine.test_function(
+        function=function,
+        test_input=test_input
+    )
+    
+    return test_result
