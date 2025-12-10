@@ -32,11 +32,17 @@ class Settings(BaseSettings):
     celery_worker_prefetch_multiplier: int = 4
     celery_worker_max_tasks_per_child: int = 1000
 
+    # Docker
+    docker_host: str = "unix://var/run/docker.sock"
+
     # Execution Limits
+    max_execution_time_pro: int = 30
+    max_memory_limit_pro: int = 512
     container_pool_size: int = 5
 
     # Storage
     log_retention_days: int = 7
+    result_cache_ttl: int = 3600
     
     class Config:
         env_file = ".env"
