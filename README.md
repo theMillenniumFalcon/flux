@@ -64,46 +64,46 @@ A production-ready serverless function runtime platform built with Python, FastA
 
 ```
 flux/
-├── api/                      # FastAPI application
-│   ├── routes/              # API endpoints
-│   │   ├── functions.py     # Function CRUD operations
-│   │   ├── executions.py    # Execution management
-│   │   ├── resources.py     # Resource monitoring
-│   │   └── health.py        # Health checks
-│   ├── models/              # Database models
-│   │   └── models.py        # SQLAlchemy models
-│   ├── schemas/             # Pydantic schemas
-│   │   └── schemas.py       # Request/response models
-│   ├── config.py            # Application configuration
-│   ├── database.py          # Database connection
-│   ├── redis_client.py      # Redis connection
-│   ├── rate_limiter.py      # Global rate limiting
-│   ├── quota_manager.py     # Usage tracking
-│   ├── middleware.py        # Custom middleware
-│   └── main.py              # FastAPI application
-├── executor/                # Execution engine
-│   ├── docker_manager.py    # Docker container management
-│   ├── runtime.py           # Function execution runtime
-│   └── container_pool.py    # Container pooling system
-├── workers/                 # Celery workers
-│   ├── celery_app.py       # Celery configuration
-│   └── tasks.py            # Celery tasks
-├── docker/                  # Docker configurations
-│   ├── runtime-images/     # Runtime container Dockerfiles
+├── api/                            # FastAPI application
+│   ├── routes/                     # API endpoints
+│   │   ├── functions.py            # Function CRUD operations
+│   │   ├── executions.py           # Execution management
+│   │   ├── resources.py            # Resource monitoring
+│   │   └── health.py               # Health checks
+│   ├── models/                     # Database models
+│   │   └── models.py               # SQLAlchemy models
+│   ├── schemas/                    # Pydantic schemas
+│   │   └── schemas.py              # Request/response models
+│   ├── config.py                   # Application configuration
+│   ├── database.py                 # Database connection
+│   ├── redis_client.py             # Redis connection
+│   ├── rate_limiter.py             # Global rate limiting
+│   ├── quota_manager.py            # Usage tracking
+│   ├── middleware.py               # Custom middleware
+│   └── main.py                     # FastAPI application
+├── executor/                       # Execution engine
+│   ├── docker_manager.py           # Docker container management
+│   ├── runtime.py                  # Function execution runtime
+│   └── container_pool.py           # Container pooling system
+├── workers/                        # Celery workers
+│   ├── celery_app.py               # Celery configuration
+│   └── tasks.py                    # Celery tasks
+├── docker/                         # Docker configurations
+│   ├── runtime-images/             # Runtime container Dockerfiles
 │   │   ├── Dockerfile.python3.9
 │   │   ├── Dockerfile.python3.10
 │   │   ├── Dockerfile.python3.11
 │   │   └── Dockerfile.python3.12
-│   ├── Dockerfile.worker   # Celery worker container
-│   └── volumes/            # Docker volumes (created at runtime)
-├── scripts/                 # Utility scripts
-│   └── build_runtime_images.sh  # Build all runtime images
-├── alembic/                # Database migrations
-│   └── versions/           # Migration files
-├── .env.example            # Environment variables template
-├── docker-compose.yml      # Docker Compose configuration
-├── pyproject.toml          # Python dependencies (uv)
-└── README.md               # This file
+│   ├── Dockerfile.worker           # Celery worker container
+│   └── volumes/                    # Docker volumes (created at runtime)
+├── scripts/                        # Utility scripts
+│   └── build_runtime_images.sh     # Build all runtime images
+├── alembic/                        # Database migrations
+│   └── versions/                   # Migration files
+├── .env.example                    # Environment variables template
+├── docker-compose.yml              # Docker Compose configuration
+├── pyproject.toml                  # Python dependencies (uv)
+└── README.md                       # This file
 ```
 
 ## 🚀 Quick Start
